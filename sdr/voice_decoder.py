@@ -62,15 +62,17 @@ class VoiceDecoder:
         self._current_mode = mode
         self._active = True
 
+        # rtl_fm uses "fm" for narrowband FM; "nfm" is not a valid -M value
+        rtl_mode = "fm" if mode == "nfm" else mode
+
         cmd = [
             "rtl_fm",
             "-f", str(freq_hz),
-            "-M", mode,
+            "-M", rtl_mode,
             "-s", "200000",          # Input sample rate
             "-r", str(config.VOICE_SAMPLE_RATE),  # Output PCM rate
             "-g", str(config.DONGLE_GAIN),
             "-d", str(self._dm.dongle_index),
-            "-",                     # Output to stdout
         ]
 
         log.info("Starting rtl_fm: %s Hz mode=%s", freq_hz, mode)
@@ -117,12 +119,13 @@ class VoiceDecoder:
                 pass
             self._read_task = None
 
-        # Notify audio consumers that stream ended
+        # Notify audio consumers that stream ended, then clear the list
         for q in self._audio_queues:
             try:
                 q.put_nowait(None)
             except asyncio.QueueFull:
                 pass
+        self._audio_queues.clear()
 
         self._session_id = None
         self._current_freq_mhz = None

@@ -70,11 +70,19 @@ class ScannerService:
     def get_active_signals(self) -> list[SignalHit]:
         now = datetime.now(timezone.utc)
         active = []
-        for sig in list(self._signals.values()):
+        stale_keys = []
+        for key, sig in list(self._signals.items()):
             age = (now - sig.last_seen).total_seconds()
-            sig.active = age < config.SIGNAL_TIMEOUT_SEC
-            if sig.active:
+            if age < config.SIGNAL_TIMEOUT_SEC:
+                sig.active = True
                 active.append(sig)
+            else:
+                sig.active = False
+                # Prune entries older than 2x the timeout to cap memory usage
+                if age > config.SIGNAL_TIMEOUT_SEC * 2:
+                    stale_keys.append(key)
+        for key in stale_keys:
+            del self._signals[key]
         return sorted(active, key=lambda s: s.freq_mhz)
 
     def get_waterfall_snapshot(self, band_name: str) -> list[WaterfallRow]:
@@ -107,22 +115,16 @@ class ScannerService:
     async def _sweep_loop(self):
         band_index = 0
         while self._running:
-            # Check if we've been asked to yield the device
-            if self._dm.preempt_requested:
-                log.info("Scanner yielding device to voice decoder")
-                self._dm.scanner_released()
-                await self._dm.wait_for_resume()
-                if not self._running:
-                    break
-                log.info("Scanner resuming")
-
             band = config.SCAN_BANDS[band_index % len(config.SCAN_BANDS)]
             band_index += 1
 
+            acquired = False
             try:
                 acquired = await self._dm.acquire(DeviceMode.SCANNING, "scanner")
                 if not acquired:
+                    # Device is held by voice decoder — wait and retry
                     await asyncio.sleep(1.0)
+                    band_index -= 1   # Retry the same band
                     continue
 
                 await self._run_band_sweep(band)
@@ -132,7 +134,7 @@ class ScannerService:
                 log.error("Sweep error on band %s: %s", band["name"], exc)
                 await asyncio.sleep(2.0)
             finally:
-                if self._dm.mode == DeviceMode.SCANNING:
+                if acquired and self._dm.mode == DeviceMode.SCANNING:
                     await self._dm.release("scanner")
 
             await asyncio.sleep(config.SCAN_PAUSE_SEC / len(config.SCAN_BANDS))
@@ -281,10 +283,27 @@ class ScannerService:
         """
         Returns list of (centroid_freq_mhz, peak_power_db, bandwidth_hz).
         Merges contiguous above-threshold bins; drops peaks < 2 bins wide.
+
+        Weights for centroid are relative to noise floor (always positive),
+        because raw dBm values are negative and produce incorrect centroids.
         """
         peaks = []
         in_peak = False
         peak_bins: list[tuple[float, float]] = []
+
+        def _emit(bins):
+            if len(bins) < 2:
+                return
+            # Weight = SNR above noise floor (always > 0 since bins are above threshold)
+            total_w = sum(p - noise_floor for _, p in bins)
+            if total_w <= 0:
+                centroid = sum(f for f, _ in bins) / len(bins)
+            else:
+                centroid = sum(f * (p - noise_floor) for f, p in bins) / total_w
+            peak_pwr = max(p for _, p in bins)
+            bw_hz = int((bins[-1][0] - bins[0][0]) * 1_000_000)
+            bw_hz = max(bw_hz, 5_000)
+            peaks.append((round(centroid, 4), peak_pwr, bw_hz))
 
         for freq, pwr in zip(freqs, powers):
             if pwr >= threshold:
@@ -295,23 +314,11 @@ class ScannerService:
             else:
                 if in_peak:
                     in_peak = False
-                    if len(peak_bins) >= 2:
-                        # Weighted centroid
-                        total_w = sum(p for _, p in peak_bins)
-                        centroid = sum(f * p for f, p in peak_bins) / total_w
-                        peak_pwr = max(p for _, p in peak_bins)
-                        bw_hz = int((peak_bins[-1][0] - peak_bins[0][0]) * 1_000_000)
-                        bw_hz = max(bw_hz, 5_000)
-                        peaks.append((round(centroid, 4), peak_pwr, bw_hz))
+                    _emit(peak_bins)
 
         # Handle peak reaching end of scan
-        if in_peak and len(peak_bins) >= 2:
-            total_w = sum(p for _, p in peak_bins)
-            centroid = sum(f * p for f, p in peak_bins) / total_w
-            peak_pwr = max(p for _, p in peak_bins)
-            bw_hz = int((peak_bins[-1][0] - peak_bins[0][0]) * 1_000_000)
-            bw_hz = max(bw_hz, 5_000)
-            peaks.append((round(centroid, 4), peak_pwr, bw_hz))
+        if in_peak:
+            _emit(peak_bins)
 
         # Merge peaks within 25 kHz of each other
         merged = []

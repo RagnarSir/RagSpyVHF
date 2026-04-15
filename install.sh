@@ -50,12 +50,16 @@ echo "   venv ready at ${VENV}"
 
 # ── Validate RTL-SDR dongle ──────────────────────────────────────────────────
 echo "[5/5] Checking for RTL-SDR dongle…"
+# Unload DVB modules now (blacklist only takes effect after reboot)
+rmmod dvb_usb_rtl28xxu rtl2832 rtl2830 2>/dev/null || true
+udevadm trigger
+sleep 1
 if rtl_test -t 2>&1 | grep -q "Found"; then
     echo "   Dongle detected OK."
 else
     echo "   WARNING: rtl_test did not detect a dongle."
-    echo "   Ensure the RTL-SDR is plugged in and DVB modules are not loaded."
-    echo "   Try: sudo rmmod dvb_usb_rtl28xxu rtl2832 2>/dev/null; sudo udevadm trigger"
+    echo "   Ensure the RTL-SDR is plugged in."
+    echo "   If the issue persists, reboot and run: rtl_test -t"
 fi
 
 # ── systemd service ──────────────────────────────────────────────────────────

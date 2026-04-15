@@ -11,7 +11,10 @@ router = APIRouter(prefix="/api/voice", tags=["voice"])
 @router.post("/tune", response_model=TuneResponse)
 async def tune(request: Request, body: TuneRequest):
     voice = request.app.state.voice
-    session_id = await voice.tune(body.freq_hz, body.mode)
+    try:
+        session_id = await voice.tune(body.freq_hz, body.mode)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     freq_mhz = body.freq_hz / 1_000_000
     return TuneResponse(
         session_id=session_id,

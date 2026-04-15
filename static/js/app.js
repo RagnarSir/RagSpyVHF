@@ -48,13 +48,11 @@ window.RagSpy = {
 
   _updateDeviceUI(msg) {
     const badge = document.getElementById("device-status");
-    const freqEl = document.getElementById("freq-display");
     badge.className = "status-badge " + msg.mode.toLowerCase();
     badge.textContent = msg.mode;
-    if (msg.current_freq_mhz) {
-      freqEl.textContent = msg.current_freq_mhz.toFixed(4) + " MHz";
-    } else {
-      freqEl.textContent = "";
+    // Clear the freq display when no longer listening
+    if (msg.mode !== "LISTENING") {
+      document.getElementById("freq-display").textContent = "";
     }
   },
 

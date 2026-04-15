@@ -55,8 +55,10 @@ window.AudioPlayer = (() => {
       // Switch to Audio tab
       document.querySelector('[data-tab="audio"]').click();
 
-      freqEl.textContent  = label || data.freq_mhz.toFixed(4) + " MHz";
+      const displayLabel = label || data.freq_mhz.toFixed(4) + " MHz";
+      freqEl.textContent  = displayLabel;
       modeEl.textContent  = data.mode.toUpperCase();
+      document.getElementById("freq-display").textContent = displayLabel;
       activeDiv.style.display = "";
       idleMsg.style.display   = "none";
 

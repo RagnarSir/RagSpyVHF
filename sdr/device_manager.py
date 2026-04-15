@@ -2,7 +2,11 @@
 DeviceManager — serialises access to the single RTL-SDR dongle.
 
 State machine:  IDLE → SCANNING → LISTENING
-                        ↑_____________↓  (VOICE ends → scanner resumes)
+                        ↑_____________↓  (VOICE ends → scanner retries)
+
+Acquisition rules:
+  - SCANNING: granted only when IDLE; returns False if LISTENING (scanner retries)
+  - LISTENING: signals preemption, waits up to 3s for device to become IDLE, then acquires
 """
 import asyncio
 import logging
@@ -29,7 +33,8 @@ class DeviceManager:
         self._since = datetime.now(timezone.utc)
         self._lock = asyncio.Lock()
         self._preempt_event = asyncio.Event()
-        self._resume_event = asyncio.Event()
+        self._idle_event = asyncio.Event()
+        self._idle_event.set()   # Starts IDLE
         self._listeners: list[asyncio.Queue] = []
 
     # ------------------------------------------------------------------
@@ -55,63 +60,44 @@ class DeviceManager:
     async def acquire(self, mode: DeviceMode, requester: str) -> bool:
         """
         Try to acquire the device for the given mode.
-        If SCANNING, signal the scanner to yield and wait up to 3s.
-        Returns True on success, False if device is busy with LISTENING.
+
+        SCANNING: granted if IDLE, rejected (False) if LISTENING.
+        LISTENING: signals preemption, waits up to 3s for IDLE, then acquires.
         """
-        async with self._lock:
-            if self._mode == DeviceMode.IDLE:
-                self._set_mode(mode, requester)
-                return True
-
-            if self._mode == DeviceMode.SCANNING and mode == DeviceMode.LISTENING:
-                # Signal scanner to pause; it checks this event each integration interval
-                log.info("Voice requesting device — signalling scanner to yield")
-                self._preempt_event.set()
-                self._resume_event.clear()
-
-            elif self._mode == DeviceMode.LISTENING:
-                log.warning("Device already in use for LISTENING — rejecting %s", requester)
-                return False
-
-        # Wait outside the lock for scanner to release (up to 3s)
-        if self._mode == DeviceMode.SCANNING:
+        if mode == DeviceMode.LISTENING:
+            # Tell the scanner to stop its current sweep
+            self._preempt_event.set()
             try:
-                await asyncio.wait_for(self._resume_event.wait(), timeout=3.0)
+                await asyncio.wait_for(self._idle_event.wait(), timeout=3.0)
             except asyncio.TimeoutError:
-                log.warning("Scanner did not yield in time — forcing acquisition")
+                log.warning("Device did not become IDLE in 3s — forcing acquisition")
 
         async with self._lock:
+            if self._mode == DeviceMode.LISTENING and mode == DeviceMode.SCANNING:
+                # Don't let the scanner preempt an active voice session
+                return False
+            self._idle_event.clear()
             self._set_mode(mode, requester)
             return True
 
     async def release(self, requester: str):
-        """Release the device. Called by scanner or voice decoder when done."""
+        """Release the device. Sets mode to IDLE and unblocks any waiters."""
         async with self._lock:
             if self._locked_by != requester:
-                log.warning("release() called by %s but locked by %s", requester, self._locked_by)
+                log.warning("release() called by %s but locked_by=%s", requester, self._locked_by)
             log.info("%s releasing device", requester)
-            self._set_mode(DeviceMode.IDLE, None)
             self._preempt_event.clear()
-            self._resume_event.set()   # Unblock any waiters (e.g. scanner resuming)
+            self._set_mode(DeviceMode.IDLE, None)
+            self._idle_event.set()
 
     # ------------------------------------------------------------------
-    # Scanner preemption helpers
+    # Scanner preemption helper
     # ------------------------------------------------------------------
 
     @property
     def preempt_requested(self) -> bool:
-        """Scanner checks this to know it should yield the device."""
+        """Scanner checks this to know it should abort the current sweep."""
         return self._preempt_event.is_set()
-
-    def scanner_released(self):
-        """Called by scanner after it has stopped rtl_power and is yielding."""
-        self._resume_event.set()
-        self._preempt_event.clear()
-
-    async def wait_for_resume(self):
-        """Scanner calls this to block until it should resume scanning."""
-        self._resume_event.clear()
-        await self._resume_event.wait()
 
     # ------------------------------------------------------------------
     # Pub/sub for WebSocket state broadcasts
@@ -130,15 +116,15 @@ class DeviceManager:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                pass  # Slow consumer — drop event
+                pass
 
     # ------------------------------------------------------------------
     # Shutdown
     # ------------------------------------------------------------------
 
     async def shutdown(self):
-        self._resume_event.set()   # Unblock any waiting coroutines
         self._preempt_event.set()
+        self._idle_event.set()   # Unblock any waiters
 
     # ------------------------------------------------------------------
     # Internal

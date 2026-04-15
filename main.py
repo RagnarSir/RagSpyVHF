@@ -3,7 +3,6 @@ RagSpyVHF — 26–76 MHz SDR signal scanner and listener for Raspberry Pi.
 """
 import asyncio
 import logging
-import signal
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -44,21 +43,12 @@ async def lifespan(app: FastAPI):
     app.state.scanner = scanner
     app.state.voice = voice
 
-    # Register SIGTERM handler to clean up child processes on shutdown
-    loop = asyncio.get_event_loop()
-
-    def _handle_signal():
-        log.info("Received shutdown signal")
-        loop.create_task(_shutdown(scanner, voice, device_manager))
-
-    loop.add_signal_handler(signal.SIGTERM, _handle_signal)
-    loop.add_signal_handler(signal.SIGINT, _handle_signal)
-
     await scanner.start()
     log.info("Scanner started — scanning 26–76 MHz")
 
     yield
 
+    # Uvicorn handles SIGTERM/SIGINT and triggers this cleanup via lifespan
     log.info("RagSpyVHF shutting down")
     await _shutdown(scanner, voice, device_manager)
 
