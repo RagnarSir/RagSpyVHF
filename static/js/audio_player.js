@@ -1,66 +1,87 @@
 /**
- * audio_player.js — streams raw PCM from /api/voice/stream/{id}
- * and plays it via Web Audio API (no ffmpeg required on the Pi).
+ * audio_player.js — streams raw S16LE PCM from /api/voice/stream/{id}
+ * and plays via Web Audio API.
  *
- * The stream is audio/x-raw S16LE mono 48 kHz.
- * We manually convert Int16 → Float32 and push into AudioContext.
+ * Features:
+ *   • S-meter: 7 LED segments updated from chunk RMS
+ *   • Squelch: client-side; mutes gain smoothly when RMS < threshold
+ *   • Tuning overlay: calls WaterfallUI.setTuningOverlay / clearTuningOverlay
+ *   • Now-listening bar: appears in header when active
  */
 window.AudioPlayer = (() => {
-  let audioCtx = null;
-  let sessionId = null;
-  let reader = null;
-  let gainNode = null;
+
+  // ── DOM handles ──────────────────────────────────────────────
+  const nowListeningBar = document.getElementById("now-listening");
+  const nlFreq          = document.getElementById("nl-freq");
+  const nlMode          = document.getElementById("nl-mode-badge");
+  const volSlider       = document.getElementById("volume-slider");
+  const squelchSlider   = document.getElementById("squelch-slider");
+  const stopBtn         = document.getElementById("stop-btn");
+  const smeterSegs      = Array.from(document.querySelectorAll("#smeter .seg"));
+
+  // ── S-meter thresholds (RMS → segment lights) ────────────────
+  // Segments 1-5 green (normal voice), 6 yellow, 7 red (strong/overload)
+  const S_THRESHOLDS = [0.005, 0.015, 0.04, 0.08, 0.15, 0.25, 0.40];
+
+  function _updateSmeter(rms) {
+    smeterSegs.forEach((seg, i) => seg.classList.toggle("lit", rms >= S_THRESHOLDS[i]));
+  }
+
+  // ── Audio state ───────────────────────────────────────────────
+  const SAMPLE_RATE  = 48000;
+  const BUFFER_AHEAD = 0.5;    // Seconds of pre-roll for jitter resistance
+
+  let audioCtx     = null;
+  let gainNode     = null;
+  let reader       = null;
+  let sessionId    = null;
   let nextPlayTime = 0;
-  const SAMPLE_RATE = 48000;
-  const BUFFER_AHEAD = 0.5;   // Seconds of pre-roll to prevent choppy playback
 
-  const freqEl    = document.getElementById("audio-freq");
-  const modeEl    = document.getElementById("audio-mode-badge");
-  const activeDiv = document.getElementById("audio-active");
-  const idleMsg   = document.getElementById("audio-idle-msg");
-  const meterBar  = document.getElementById("audio-meter-bar");
-  const bufStatus = document.getElementById("audio-buffer-status");
-  const volSlider = document.getElementById("volume-slider");
-  const stopBtn   = document.getElementById("stop-btn");
-
+  // ── Wire stop button ──────────────────────────────────────────
   stopBtn.addEventListener("click", () => stop());
   volSlider.addEventListener("input", () => {
-    if (gainNode) gainNode.gain.value = parseFloat(volSlider.value);
+    if (gainNode && audioCtx) {
+      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+      gainNode.gain.setTargetAtTime(parseFloat(volSlider.value), audioCtx.currentTime, 0.05);
+    }
   });
 
-  // ── Public API ────────────────────────────────────────────────────
-
-  async function tune(freq_hz, mode, label) {
+  // ── Public: tune ──────────────────────────────────────────────
+  async function tune(freq_hz, mode, label, bandwidth_hz) {
     if (sessionId) await stop();
 
     try {
       const resp = await fetch("/api/voice/tune", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ freq_hz, mode }),
+        body:    JSON.stringify({ freq_hz, mode }),
       });
       if (!resp.ok) {
-        console.error("Tune failed:", await resp.text());
+        console.error("Tune failed:", resp.status, await resp.text());
         return;
       }
       const data = await resp.json();
       sessionId = data.session_id;
 
       window.RagSpy.currentSession = {
-        id: sessionId,
-        freq_mhz: data.freq_mhz,
-        mode: data.mode,
+        id:           sessionId,
+        freq_mhz:     data.freq_mhz,
+        mode:         data.mode,
+        bandwidth_hz: bandwidth_hz ?? 12500,
       };
 
-      // Switch to Audio tab
-      document.querySelector('[data-tab="audio"]').click();
+      // Show now-listening bar
+      nlFreq.textContent = label || data.freq_mhz.toFixed(4) + " MHz";
+      nlMode.textContent = data.mode.toUpperCase();
+      nowListeningBar.style.display = "flex";
 
-      const displayLabel = label || data.freq_mhz.toFixed(4) + " MHz";
-      freqEl.textContent  = displayLabel;
-      modeEl.textContent  = data.mode.toUpperCase();
-      document.getElementById("freq-display").textContent = displayLabel;
-      activeDiv.style.display = "";
-      idleMsg.style.display   = "none";
+      // Tuning overlay on spectrum/waterfall
+      if (typeof window.WaterfallUI !== "undefined") {
+        window.WaterfallUI.setTuningOverlay({
+          freq_mhz:     data.freq_mhz,
+          bandwidth_hz: bandwidth_hz ?? 12500,
+        });
+      }
 
       _startStreaming(data.stream_url);
     } catch (e) {
@@ -68,6 +89,7 @@ window.AudioPlayer = (() => {
     }
   }
 
+  // ── Public: stop ──────────────────────────────────────────────
   async function stop() {
     if (!sessionId) return;
 
@@ -82,26 +104,33 @@ window.AudioPlayer = (() => {
     if (audioCtx) {
       try { await audioCtx.close(); } catch (_) {}
       audioCtx = null;
+      gainNode = null;
+    }
+
+    // Hide now-listening bar, clear S-meter
+    nowListeningBar.style.display = "none";
+    _updateSmeter(0);
+
+    // Remove tuning overlay
+    if (typeof window.WaterfallUI !== "undefined") {
+      window.WaterfallUI.clearTuningOverlay();
     }
 
     try {
       await fetch(`/api/voice/stop?session_id=${sid}`, { method: "POST" });
     } catch (_) {}
-
-    activeDiv.style.display = "none";
-    idleMsg.style.display   = "";
-    meterBar.style.width    = "0%";
-    bufStatus.textContent   = "";
   }
 
-  // ── Streaming / decoding ──────────────────────────────────────────
-
+  // ── Streaming / decoding ──────────────────────────────────────
   async function _startStreaming(url) {
-    audioCtx   = new AudioContext({ sampleRate: SAMPLE_RATE });
-    gainNode   = audioCtx.createGain();
+    audioCtx     = new AudioContext({ sampleRate: SAMPLE_RATE });
+    gainNode     = audioCtx.createGain();
     gainNode.gain.value = parseFloat(volSlider.value);
     gainNode.connect(audioCtx.destination);
     nextPlayTime = audioCtx.currentTime + BUFFER_AHEAD;
+
+    // Browsers require a user gesture before AudioContext runs; resume if suspended
+    if (audioCtx.state === "suspended") await audioCtx.resume();
 
     let response;
     try {
@@ -118,14 +147,14 @@ window.AudioPlayer = (() => {
     while (true) {
       let chunk;
       try {
-        const result = await reader.read();
-        if (result.done) break;
-        chunk = result.value;
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunk = value;
       } catch (_) {
         break;
       }
 
-      // Prepend any leftover bytes from last chunk
+      // Merge with any leftover bytes from previous chunk
       let data;
       if (leftover.length > 0) {
         data = new Uint8Array(leftover.length + chunk.length);
@@ -135,42 +164,48 @@ window.AudioPlayer = (() => {
         data = chunk;
       }
 
-      // Process whole Int16 samples only
+      // Only process whole Int16 samples
       const wholeSamples = Math.floor(data.length / 2) * 2;
       leftover = data.slice(wholeSamples);
       if (wholeSamples === 0) continue;
 
-      const int16 = new Int16Array(data.buffer, data.byteOffset, wholeSamples / 2);
+      // Int16 → Float32 and compute RMS
+      const int16   = new Int16Array(data.buffer, data.byteOffset, wholeSamples / 2);
       const float32 = new Float32Array(int16.length);
-      let rms = 0;
+      let sumSq = 0;
       for (let i = 0; i < int16.length; i++) {
         const f = int16[i] / 32768.0;
         float32[i] = f;
-        rms += f * f;
+        sumSq += f * f;
       }
-      rms = Math.sqrt(rms / int16.length);
+      const rms = Math.sqrt(sumSq / int16.length);
+
+      // S-meter update
+      _updateSmeter(rms);
+
+      // Squelch: smoothly mute gain when RMS is below threshold
+      if (gainNode && audioCtx) {
+        const squelch    = parseFloat(squelchSlider.value);
+        const targetGain = rms < squelch ? 0 : parseFloat(volSlider.value);
+        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        gainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+      }
 
       // Schedule audio buffer
+      if (!audioCtx) break;
       const buffer = audioCtx.createBuffer(1, float32.length, SAMPLE_RATE);
       buffer.getChannelData(0).set(float32);
       const source = audioCtx.createBufferSource();
-      source.buffer = buffer;
+      source.buffer  = buffer;
       source.connect(gainNode);
 
       const now = audioCtx.currentTime;
       if (nextPlayTime < now) nextPlayTime = now + BUFFER_AHEAD;
       source.start(nextPlayTime);
       nextPlayTime += buffer.duration;
-
-      // Update VU meter
-      const pct = Math.min(100, Math.round(rms * 400));
-      meterBar.style.width = pct + "%";
-
-      const buffered = Math.max(0, nextPlayTime - audioCtx.currentTime).toFixed(2);
-      bufStatus.textContent = `Buffer: ${buffered}s`;
     }
 
-    // Stream ended
+    // Stream ended from server side
     if (sessionId) await stop();
   }
 
