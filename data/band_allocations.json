@@ -1,0 +1,54 @@
+[
+  {
+    "name": "cb_radio",
+    "display": "CB Radio",
+    "start_mhz": 26.965,
+    "stop_mhz": 27.405,
+    "rtl_fm_mode": "am",
+    "channels": {
+      "26.965": "Ch 1",  "26.975": "Ch 2",  "26.985": "Ch 3",  "27.005": "Ch 4",
+      "27.015": "Ch 5",  "27.025": "Ch 6",  "27.035": "Ch 7",  "27.055": "Ch 8",
+      "27.065": "Ch 9 (Emergency)", "27.075": "Ch 10", "27.085": "Ch 11",
+      "27.105": "Ch 12", "27.115": "Ch 13", "27.125": "Ch 14", "27.135": "Ch 15",
+      "27.155": "Ch 16", "27.165": "Ch 17", "27.175": "Ch 18",
+      "27.185": "Ch 19 (Truckers)", "27.205": "Ch 20", "27.215": "Ch 21",
+      "27.225": "Ch 22", "27.255": "Ch 23", "27.235": "Ch 24", "27.245": "Ch 25",
+      "27.265": "Ch 26", "27.275": "Ch 27", "27.285": "Ch 28", "27.295": "Ch 29",
+      "27.305": "Ch 30", "27.315": "Ch 31", "27.325": "Ch 32", "27.335": "Ch 33",
+      "27.345": "Ch 34", "27.355": "Ch 35", "27.365": "Ch 36", "27.375": "Ch 37",
+      "27.385": "Ch 38", "27.395": "Ch 39", "27.405": "Ch 40"
+    }
+  },
+  {
+    "name": "amateur_10m",
+    "display": "Amateur 10m",
+    "start_mhz": 28.0,
+    "stop_mhz": 29.7,
+    "rtl_fm_mode": "usb",
+    "notes": "USB voice 28.3–29.0 MHz, FM simplex 29.6 MHz"
+  },
+  {
+    "name": "land_mobile_vhf_low",
+    "display": "Land Mobile / Public Safety VHF",
+    "start_mhz": 29.7,
+    "stop_mhz": 50.0,
+    "rtl_fm_mode": "nfm",
+    "notes": "Business, public safety, forestry, military"
+  },
+  {
+    "name": "amateur_6m",
+    "display": "Amateur 6m",
+    "start_mhz": 50.0,
+    "stop_mhz": 54.0,
+    "rtl_fm_mode": "usb",
+    "notes": "USB voice 50.1–50.3 MHz, FM 51–54 MHz, calling 52.525 MHz"
+  },
+  {
+    "name": "vhf_low_utility",
+    "display": "VHF Low / Utility",
+    "start_mhz": 54.0,
+    "stop_mhz": 76.0,
+    "rtl_fm_mode": "nfm",
+    "notes": "Former TV channels 2–4, various utility and fixed"
+  }
+]

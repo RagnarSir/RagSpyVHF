@@ -1,0 +1,22 @@
+[Unit]
+Description=RagSpyVHF — 26–76 MHz SDR scanner and listener
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ragnar
+Group=plugdev
+WorkingDirectory=/home/ragnar/Claude/RagSpy
+ExecStart=/home/ragnar/Claude/RagSpy/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Kill child processes (rtl_fm, rtl_power) on service stop
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RagSpyVHF</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>RagSpyVHF</h1>
+    <div id="device-status" class="status-badge idle">IDLE</div>
+    <span id="freq-display"></span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="signals">Signals</button>
+    <button class="tab-btn" data-tab="audio">Audio</button>
+  </nav>
+
+  <!-- Signals tab -->
+  <section id="tab-signals" class="tab-panel active">
+    <div id="waterfall-container">
+      <div id="band-selector">
+        <label>Band:</label>
+        <select id="band-select"></select>
+      </div>
+      <canvas id="waterfall-canvas" width="900" height="300"></canvas>
+      <div id="waterfall-freq-axis"></div>
+    </div>
+
+    <div id="signals-panel">
+      <h2>Active Signals</h2>
+      <table id="signals-table">
+        <thead>
+          <tr>
+            <th>Frequency</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>SNR (dB)</th>
+            <th>Mode</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="signals-body">
+          <tr id="signals-empty"><td colspan="6">Scanning…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Audio tab -->
+  <section id="tab-audio" class="tab-panel">
+    <div id="audio-panel">
+      <div id="audio-status">
+        <p id="audio-idle-msg">No active audio session. Click <strong>Listen</strong> on a signal.</p>
+        <div id="audio-active" style="display:none">
+          <p>
+            Listening to <strong id="audio-freq"></strong>
+            &nbsp;<span id="audio-mode-badge" class="mode-badge"></span>
+          </p>
+          <div class="audio-controls">
+            <label>Volume <input type="range" id="volume-slider" min="0" max="2" step="0.05" value="1" /></label>
+            <button id="stop-btn">Stop</button>
+          </div>
+          <div id="audio-meter">
+            <div id="audio-meter-bar"></div>
+          </div>
+          <p id="audio-buffer-status"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/waterfall.js"></script>
+  <script src="/static/js/signals.js"></script>
+  <script src="/static/js/audio_player.js"></script>
+</body>
+</html>
