@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RagSpyVHF — Demo</title>
+  <style>
+    /* ── Design tokens ───────────────────────────────────────────── */
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2128;
+      --border:    #30363d;
+      --text:      #c9d1d9;
+      --text-dim:  #8b949e;
+      --accent:    #58a6ff;
+      --green:     #3fb950;
+      --yellow:    #d29922;
+      --red:       #f85149;
+      --radius:    5px;
+
+      --header-h:    48px;
+      --sidebar-w:   176px;
+      --ruler-h:     28px;
+      --spectrum-h:  90px;
+      --wf-h:        240px;
+      --cursor-h:    22px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Demo banner ─────────────────────────────────────────────── */
+    #demo-banner {
+      background: #2d1f06;
+      color: var(--yellow);
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 0;
+      border-bottom: 1px solid #6e401a;
+      flex-shrink: 0;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    #app-header {
+      height: var(--header-h);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      z-index: 10;
+    }
+
+    .app-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .status-badge {
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .status-badge.idle      { background: #21262d; color: var(--text-dim); }
+    .status-badge.scanning  { background: #1a3a25; color: var(--green); }
+    .status-badge.listening { background: #3b1f2a; color: var(--red); }
+
+    /* ── Now-listening bar ───────────────────────────────────────── */
+    #now-listening {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-left: 8px;
+      padding-left: 14px;
+      border-left: 1px solid var(--border);
+      flex: 1;
+      overflow: hidden;
+    }
+    #nl-freq {
+      font-size: 15px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    /* S-meter */
+    #smeter { display: flex; gap: 2px; align-items: center; flex-shrink: 0; }
+    #smeter .seg {
+      width: 7px; height: 18px; border-radius: 2px;
+      background: #21262d; transition: background 0.06s;
+    }
+    #smeter .seg.green  { --lit: var(--green); }
+    #smeter .seg.yellow { --lit: var(--yellow); }
+    #smeter .seg.red    { --lit: var(--red); }
+    #smeter .seg.lit    { background: var(--lit); }
+
+    .ctrl-label {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text-dim); white-space: nowrap;
+    }
+    .ctrl-label input[type="range"] { width: 70px; accent-color: var(--accent); }
+
+    #stop-btn {
+      background: var(--red); border: none; border-radius: var(--radius);
+      color: #fff; cursor: pointer; font-size: 12px; font-weight: 600;
+      padding: 5px 12px; white-space: nowrap; flex-shrink: 0;
+    }
+    #stop-btn:hover { opacity: 0.85; }
+
+    /* ── Two-column body ─────────────────────────────────────────── */
+    #app-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────────── */
+    #sidebar {
+      display: flex; flex-direction: column; gap: 14px;
+      padding: 14px 12px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto; overflow-x: hidden;
+    }
+    .sb-label {
+      display: block; font-size: 10px; font-weight: 600;
+      letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--text-dim); margin-bottom: 6px;
+    }
+    .sb-section { display: flex; flex-direction: column; }
+
+    select {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      padding: 5px 8px; font-size: 12px; cursor: pointer;
+    }
+    select:focus { outline: 2px solid var(--accent); }
+
+    .btn-group { display: flex; flex-wrap: wrap; gap: 3px; }
+    .btn-group.vertical { flex-direction: column; }
+
+    .mode-btn, .zoom-btn, .palette-btn {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text-dim);
+      cursor: pointer; font-size: 11px; font-weight: 600;
+      padding: 4px 8px;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+      flex: 1; text-align: center;
+    }
+    .mode-btn:hover, .zoom-btn:hover, .palette-btn:hover {
+      background: var(--surface2); color: var(--text);
+    }
+    .mode-btn.active, .zoom-btn.active, .palette-btn.active {
+      background: var(--accent); border-color: var(--accent); color: #0d1117;
+    }
+
+    .freq-entry { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; }
+    #freq-input {
+      flex: 1; background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      font-size: 12px; padding: 5px 7px;
+      font-variant-numeric: tabular-nums; min-width: 0;
+    }
+    #freq-input:focus { outline: 2px solid var(--accent); }
+    .freq-unit { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+    .go-btn {
+      width: 100%; background: var(--accent); border: none;
+      border-radius: var(--radius); color: #0d1117;
+      cursor: pointer; font-size: 12px; font-weight: 700;
+      padding: 5px; transition: opacity 0.1s;
+    }
+    .go-btn:hover { opacity: 0.85; }
+
+    /* ── Display column ──────────────────────────────────────────── */
+    #display-column {
+      display: flex; flex-direction: column;
+      overflow: hidden; min-height: 0;
+    }
+    .canvas-stack { position: relative; flex-shrink: 0; }
+    canvas { display: block; width: 100%; }
+    #ruler-canvas     { height: var(--ruler-h);    background: #090d12; }
+    #spectrum-canvas  { height: var(--spectrum-h); background: #090d12; }
+    #waterfall-canvas { height: var(--wf-h); background: #000; image-rendering: pixelated; }
+    #canvas-overlay   { position: absolute; inset: 0; cursor: crosshair; }
+
+    /* Cursor bar */
+    #cursor-bar {
+      height: var(--cursor-h); flex-shrink: 0;
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 10px; background: var(--bg);
+      border-top: 1px solid var(--border);
+      font-size: 11px; font-variant-numeric: tabular-nums;
+    }
+    #cursor-freq  { color: var(--accent); font-weight: 600; }
+    #cursor-power { color: var(--text-dim); }
+    #cursor-hint  { margin-left: auto; color: #484f58; font-style: italic; }
+
+    /* ── Signals panel ───────────────────────────────────────────── */
+    #signals-panel { flex: 1; overflow-y: auto; padding: 10px 14px; min-height: 0; }
+    .panel-title {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;
+    }
+    #signals-table {
+      width: 100%; border-collapse: collapse;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    #signals-table th {
+      background: var(--surface2); color: var(--text-dim);
+      font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase; padding: 7px 10px;
+      text-align: left; white-space: nowrap;
+    }
+    #signals-table td {
+      padding: 7px 10px; border-top: 1px solid var(--border);
+      font-variant-numeric: tabular-nums;
+    }
+    #signals-table tbody tr:hover td { background: var(--surface2); }
+    #signals-empty td {
+      text-align: center; color: var(--text-dim); padding: 20px; font-style: italic;
+    }
+    .snr-high   { color: var(--green); font-weight: 600; }
+    .snr-medium { color: var(--yellow); }
+    .snr-low    { color: var(--text-dim); }
+    .mode-badge {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-size: 10px; font-weight: 700;
+      background: var(--surface2); color: var(--text-dim);
+    }
+    .listen-btn {
+      background: var(--accent); border: none; border-radius: var(--radius);
+      color: #0d1117; cursor: pointer; font-size: 11px; font-weight: 700;
+      padding: 4px 10px; transition: opacity 0.1s; white-space: nowrap;
+    }
+    .listen-btn:hover  { opacity: 0.85; }
+    .listen-btn.active { background: var(--red); color: #fff; }
+  </style>
+</head>
+<body>
+
+  <div id="demo-banner">&#9888; Demo Mode — simulated SDR data, no hardware required &nbsp;·&nbsp; Click spectrum or Listen buttons to try tuning</div>
+
+  <header id="app-header">
+    <span class="app-title">RagSpyVHF</span>
+    <div id="device-status" class="status-badge scanning">SCANNING</div>
+
+    <div id="now-listening">
+      <span id="nl-freq">—</span>
+      <span id="nl-mode-badge" class="mode-badge">—</span>
+      <div id="smeter" title="Signal strength">
+        <span class="seg green"  data-seg="1"></span>
+        <span class="seg green"  data-seg="2"></span>
+        <span class="seg green"  data-seg="3"></span>
+        <span class="seg green"  data-seg="4"></span>
+        <span class="seg green"  data-seg="5"></span>
+        <span class="seg yellow" data-seg="6"></span>
+        <span class="seg red"    data-seg="7"></span>
+      </div>
+      <label class="ctrl-label">Vol
+        <input type="range" id="volume-slider" min="0" max="2" step="0.05" value="1" />
+      </label>
+      <label class="ctrl-label">SQL
+        <input type="range" id="squelch-slider" min="0" max="0.3" step="0.005" value="0.02" />
+      </label>
+      <button id="stop-btn">&#9632; Stop</button>
+    </div>
+  </header>
+
+  <div id="app-body">
+    <aside id="sidebar">
+      <section class="sb-section">
+        <span class="sb-label">Band</span>
+        <select id="band-select"></select>
+      </section>
+      <section class="sb-section">
+        <span class="sb-label">Mode</span>
+        <div class="btn-group" id="mode-buttons">
+          <button class="mode-btn active" data-mode="am">AM</button>
+          <button class="mode-btn" data-mode="nfm">NFM</button>
+          <button class="mode-btn" data-mode="usb">USB</button>
+          <button class="mode-btn" data-mode="lsb">LSB</button>
+        </div>
+      </section>
+      <section class="sb-section">
+        <span class="sb-label">Frequency</span>
+        <div class="freq-entry">
+          <input type="text" id="freq-input" placeholder="27.185" />
+          <span class="freq-unit">MHz</span>
+        </div>
+        <button id="freq-go-btn" class="go-btn">Tune</button>
+      </section>
+      <section class="sb-section">
+        <span class="sb-label">Zoom</span>
+        <div class="btn-group" id="zoom-buttons">
+          <button class="zoom-btn active" data-zoom="1">1×</button>
+          <button class="zoom-btn" data-zoom="2">2×</button>
+          <button class="zoom-btn" data-zoom="4">4×</button>
+          <button class="zoom-btn" data-zoom="8">8×</button>
+        </div>
+      </section>
+      <section class="sb-section">
+        <span class="sb-label">Palette</span>
+        <div class="btn-group vertical" id="palette-buttons">
+          <button class="palette-btn active" data-palette="heat">Heat</button>
+          <button class="palette-btn" data-palette="grey">Greyscale</button>
+          <button class="palette-btn" data-palette="rainbow">Rainbow</button>
+        </div>
+      </section>
+    </aside>
+
+    <main id="display-column">
+      <div class="canvas-stack" id="canvas-stack">
+        <canvas id="ruler-canvas"     height="28"></canvas>
+        <canvas id="spectrum-canvas"  height="90"></canvas>
+        <canvas id="waterfall-canvas" height="240"></canvas>
+        <div id="canvas-overlay"></div>
+      </div>
+      <div id="cursor-bar">
+        <span id="cursor-freq">Hover over spectrum to read frequency</span>
+        <span id="cursor-power"></span>
+        <span id="cursor-hint">Click to tune &middot; Drag to pan</span>
+      </div>
+      <div id="signals-panel">
+        <h2 class="panel-title">Active Signals</h2>
+        <table id="signals-table">
+          <thead>
+            <tr>
+              <th>Frequency</th>
+              <th>Type</th>
+              <th>Name</th>
+              <th>SNR&nbsp;dB</th>
+              <th>Mode</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="signals-body">
+            <tr id="signals-empty"><td colspan="6">Scanning&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+  // ═══════════════════════════════════════════════════════════════
+  // Demo simulation data
+  // ═══════════════════════════════════════════════════════════════
+
+  const DEMO_BANDS = [
+    { name: "cb_radio",            display: "CB Radio (26.96–27.41 MHz)",  start_mhz: 26.96, stop_mhz: 27.41, rtl_fm_mode: "am"  },
+    { name: "amateur_10m",         display: "Amateur 10m (28.0–29.7 MHz)", start_mhz: 28.0,  stop_mhz: 29.7,  rtl_fm_mode: "usb" },
+    { name: "land_mobile_vhf_low", display: "Land Mobile (29.7–50.0 MHz)", start_mhz: 29.7,  stop_mhz: 50.0,  rtl_fm_mode: "nfm" },
+    { name: "amateur_6m",          display: "Amateur 6m (50.0–54.0 MHz)",  start_mhz: 50.0,  stop_mhz: 54.0,  rtl_fm_mode: "usb" },
+    { name: "vhf_low_utility",     display: "VHF Utility (54–76 MHz)",     start_mhz: 54.0,  stop_mhz: 76.0,  rtl_fm_mode: "nfm" },
+  ];
+
+  // Simulated signals per band: freq_mhz, peak SNR, fade phase (for time-varying strength)
+  const DEMO_SIGNALS = {
+    cb_radio: [
+      { freq_mhz: 27.185, snr_db: 20, phase: 0.0, signal_type: "cb_radio",    display_name: "CB Ch 19 (27.185 MHz)", rtl_fm_mode: "am",  bandwidth_est_hz: 10000 },
+      { freq_mhz: 27.065, snr_db: 13, phase: 1.6, signal_type: "cb_radio",    display_name: "CB Ch 5 (27.065 MHz)",  rtl_fm_mode: "am",  bandwidth_est_hz: 10000 },
+      { freq_mhz: 27.225, snr_db:  9, phase: 3.1, signal_type: "cb_radio",    display_name: "CB Ch 22 (27.225 MHz)", rtl_fm_mode: "am",  bandwidth_est_hz: 10000 },
+    ],
+    amateur_10m: [
+      { freq_mhz: 28.400, snr_db: 16, phase: 0.8, signal_type: "amateur_10m", display_name: "10m SSB 28.400 MHz",    rtl_fm_mode: "usb", bandwidth_est_hz: 3000  },
+      { freq_mhz: 29.600, snr_db: 24, phase: 2.3, signal_type: "amateur_10m", display_name: "10m FM Calling 29.600", rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+    ],
+    land_mobile_vhf_low: [
+      { freq_mhz: 45.860, snr_db: 29, phase: 0.4, signal_type: "land_mobile", display_name: "Public Safety 45.860", rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+      { freq_mhz: 33.420, snr_db: 15, phase: 1.9, signal_type: "land_mobile", display_name: "Land Mobile 33.420",   rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+      { freq_mhz: 42.000, snr_db: 11, phase: 4.5, signal_type: "land_mobile", display_name: "VHF Low 42.000",       rtl_fm_mode: "nfm", bandwidth_est_hz: 25000 },
+    ],
+    amateur_6m: [
+      { freq_mhz: 50.125, snr_db: 18, phase: 1.1, signal_type: "amateur_6m",  display_name: "6m SSB Calling 50.125", rtl_fm_mode: "usb", bandwidth_est_hz: 3000  },
+      { freq_mhz: 52.525, snr_db: 22, phase: 2.7, signal_type: "amateur_6m",  display_name: "6m NFM Calling 52.525", rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+    ],
+    vhf_low_utility: [
+      { freq_mhz: 65.500, snr_db: 18, phase: 3.4, signal_type: "vhf_utility", display_name: "VHF Utility 65.500",  rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+      { freq_mhz: 72.000, snr_db: 12, phase: 1.2, signal_type: "vhf_utility", display_name: "VHF Utility 72.000",  rtl_fm_mode: "nfm", bandwidth_est_hz: 12500 },
+    ],
+  };
+
+  // Generate one waterfall row for a band at simulation time t
+  function _generateRow(bandName, freqStart, freqStop, numBins, t) {
+    const noiseBase = -88;
+    const powers = new Float32Array(numBins);
+
+    // Noise floor with slight frequency-dependent tilt (lower sensitivity at lower freq)
+    for (let i = 0; i < numBins; i++) {
+      const frac = i / numBins;
+      const tilt = (freqStart < 30) ? (1 - frac) * 2.5 : 0;   // tilt up at HF
+      powers[i] = noiseBase + tilt + (Math.random() * 5 - 2.5);
+    }
+
+    // Inject signal peaks
+    const sigs = DEMO_SIGNALS[bandName] || [];
+    sigs.forEach(sig => {
+      const variation = 0.6 + 0.4 * Math.sin(t * 0.25 + sig.phase);
+      const snr = sig.snr_db * variation;
+      if (snr < 4) return;
+
+      const peakPower = noiseBase + snr + (Math.random() - 0.5) * 1.5;
+      const span = freqStop - freqStart;
+      const centerBin = (sig.freq_mhz - freqStart) / span * (numBins - 1);
+      const bwBins = Math.max(2, (sig.bandwidth_est_hz / 1e6) / span * numBins);
+      const sigma = Math.max(1.5, bwBins / 2.5);
+
+      const lo = Math.max(0, Math.floor(centerBin - sigma * 4));
+      const hi = Math.min(numBins - 1, Math.ceil(centerBin + sigma * 4));
+      for (let b = lo; b <= hi; b++) {
+        const d = b - centerBin;
+        const g = Math.exp(-(d * d) / (2 * sigma * sigma));
+        powers[b] = Math.max(powers[b], noiseBase + (peakPower - noiseBase) * g);
+      }
+    });
+
+    return powers;
+  }
+
+  // Return visible signals list for the given band at time t (same format as backend)
+  function _generateSignals(bandName, t) {
+    return (DEMO_SIGNALS[bandName] || [])
+      .map(sig => {
+        const variation = 0.6 + 0.4 * Math.sin(t * 0.25 + sig.phase);
+        const snr = sig.snr_db * variation;
+        if (snr < 6) return null;
+        return { ...sig, snr_db: Math.round(snr * 10) / 10 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.snr_db - a.snr_db);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // WaterfallUI — unchanged from production
+  // ═══════════════════════════════════════════════════════════════
+  window.WaterfallUI = (() => {
+    const rulerC  = document.getElementById("ruler-canvas");
+    const specC   = document.getElementById("spectrum-canvas");
+    const wfC     = document.getElementById("waterfall-canvas");
+    const overlay = document.getElementById("canvas-overlay");
+    const rulerCtx = rulerC.getContext("2d");
+    const specCtx  = specC.getContext("2d");
+    const wfCtx    = wfC.getContext("2d");
+
+    const view = { zoom: 1, panFrac: 0.5 };
+    let currentPalette = "heat";
+    let bandStart = 26.96, bandEnd = 27.41;
+
+    let latestPowers = [];
+    let peakHold     = [];
+    let noiseFloor   = -100;
+    let displayMin   = -110;
+    let displayMax   = -50;
+    const PEAK_DECAY = 0.5;
+
+    const MAX_ROWS = 300;
+    const rowHistory = [];
+    let rowHead = 0;
+    let lastWfImg = null;
+    let tuningOverlay = null;
+    let cursorX = null;
+    let dragStartX = null, dragStartPanFrac = null;
+
+    function visibleRange() {
+      const span = bandEnd - bandStart;
+      const halfWin = span / (2 * view.zoom);
+      let lo = bandStart + view.panFrac * span - halfWin;
+      let hi = lo + span / view.zoom;
+      if (lo < bandStart) { lo = bandStart; hi = lo + span / view.zoom; }
+      if (hi > bandEnd)   { hi = bandEnd;   lo = hi - span / view.zoom; }
+      return { lo, hi };
+    }
+    function xToFreq(x, W) { const {lo,hi}=visibleRange(); return lo+(x/W)*(hi-lo); }
+    function freqToX(f, W) { const {lo,hi}=visibleRange(); return ((f-lo)/(hi-lo))*W; }
+    function freqToBin(f, n) {
+      const span=bandEnd-bandStart; if(!span) return 0;
+      return Math.max(0,Math.min(n-1,Math.round((f-bandStart)/span*(n-1))));
+    }
+
+    function hsvToRgb(h,s,v) {
+      const c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;
+      let r=0,g=0,b=0;
+      if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}
+      else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
+      return[Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+    }
+    const PALETTES = {
+      heat(t) {
+        if(t<0.25){const s=t/0.25;      return[0,Math.round(s*255),255];}
+        if(t<0.5) {const s=(t-.25)/.25; return[0,255,Math.round((1-s)*255)];}
+        if(t<0.75){const s=(t-.5)/.25;  return[Math.round(s*255),255,0];}
+        {          const s=(t-.75)/.25;  return[255,Math.round((1-s)*255),0];}
+      },
+      grey(t){const v=Math.round(t*255);return[v,v,v];},
+      rainbow(t){return hsvToRgb((1-t)*240,1,0.95);},
+    };
+    function palette(db) {
+      const t=Math.max(0,Math.min(1,(db-displayMin)/(displayMax-displayMin)));
+      return PALETTES[currentPalette](t);
+    }
+
+    function _resize() {
+      const W=wfC.offsetWidth||900;
+      [rulerC,specC,wfC].forEach(c=>{c.width=W;});
+      lastWfImg=null; _redrawAll();
+    }
+    new ResizeObserver(()=>_resize()).observe(document.getElementById("display-column"));
+
+    function _drawRuler() {
+      const W=rulerC.width,H=rulerC.height;
+      const {lo,hi}=visibleRange(); const span=hi-lo;
+      rulerCtx.fillStyle="#090d12"; rulerCtx.fillRect(0,0,W,H);
+      const rawStep=span/(W/70);
+      const niceSteps=[0.01,0.025,0.05,0.1,0.25,0.5,1,2,5,10,25];
+      const step=niceSteps.find(s=>s>=rawStep)||25;
+      const dec=step<0.1?3:step<1?2:step<10?1:0;
+      rulerCtx.fillStyle="#8b949e"; rulerCtx.font="10px monospace";
+      rulerCtx.textAlign="center"; rulerCtx.textBaseline="alphabetic";
+      const first=Math.ceil(lo/step)*step;
+      for(let i=0;;i++){
+        const f=Math.round((first+i*step)*1e6)/1e6;
+        if(f>hi) break;
+        const x=Math.round(freqToX(f,W));
+        rulerCtx.fillRect(x,H-7,1,7);
+        rulerCtx.fillText(f.toFixed(dec),x,H-10);
+      }
+      if(cursorX!==null){
+        rulerCtx.fillStyle="rgba(255,255,255,0.8)";
+        rulerCtx.fillRect(Math.round(cursorX),H-9,1,9);
+      }
+    }
+
+    function _drawSpectrum() {
+      const W=specC.width,H=specC.height; if(!W) return;
+      const {lo,hi}=visibleRange();
+      specCtx.fillStyle="#090d12"; specCtx.fillRect(0,0,W,H);
+      if(!latestPowers.length) return;
+      const nBins=latestPowers.length;
+      function dbToY(db){return H-Math.max(0,Math.min(H,((db-displayMin)/(displayMax-displayMin))*H));}
+
+      if(peakHold.length===nBins){
+        specCtx.beginPath(); let started=false;
+        for(let x=0;x<W;x++){
+          const bin=freqToBin(lo+(x/W)*(hi-lo),nBins);
+          const y=dbToY(peakHold[bin]);
+          started?specCtx.lineTo(x,y):specCtx.moveTo(x,y); started=true;
+        }
+        specCtx.strokeStyle="rgba(255,180,0,0.45)"; specCtx.lineWidth=1; specCtx.stroke();
+      }
+
+      specCtx.beginPath(); specCtx.moveTo(0,H);
+      for(let x=0;x<W;x++){
+        const bin=freqToBin(lo+(x/W)*(hi-lo),nBins);
+        specCtx.lineTo(x,dbToY(latestPowers[bin]));
+      }
+      specCtx.lineTo(W,H); specCtx.closePath();
+      specCtx.fillStyle="rgba(88,166,255,0.18)"; specCtx.fill();
+
+      specCtx.beginPath();
+      for(let x=0;x<W;x++){
+        const bin=freqToBin(lo+(x/W)*(hi-lo),nBins);
+        x===0?specCtx.moveTo(x,dbToY(latestPowers[bin])):specCtx.lineTo(x,dbToY(latestPowers[bin]));
+      }
+      specCtx.strokeStyle="#58a6ff"; specCtx.lineWidth=1.5; specCtx.stroke();
+
+      const nfY=dbToY(noiseFloor);
+      specCtx.setLineDash([4,4]); specCtx.strokeStyle="rgba(63,185,80,0.55)";
+      specCtx.lineWidth=1; specCtx.beginPath(); specCtx.moveTo(0,nfY); specCtx.lineTo(W,nfY); specCtx.stroke();
+      specCtx.setLineDash([]);
+
+      if(tuningOverlay) _drawOverlay(specCtx,W,H);
+      if(cursorX!==null){
+        specCtx.strokeStyle="rgba(255,255,255,0.55)"; specCtx.lineWidth=1;
+        specCtx.beginPath(); specCtx.moveTo(Math.round(cursorX),0); specCtx.lineTo(Math.round(cursorX),H); specCtx.stroke();
+      }
+    }
+
+    function _drawWaterfall() {
+      const W=wfC.width,H=wfC.height; if(!W) return;
+      const {lo,hi}=visibleRange();
+      const imgData=wfCtx.createImageData(W,H); const data=imgData.data;
+      const nRows=Math.min(rowHistory.filter(Boolean).length,H);
+      for(let y=0;y<nRows;y++){
+        const idx=(rowHead-1-y+MAX_ROWS)%MAX_ROWS;
+        const row=rowHistory[idx]; if(!row) continue;
+        const nBins=row.length; const base=y*W*4;
+        for(let x=0;x<W;x++){
+          const bin=freqToBin(lo+(x/W)*(hi-lo),nBins);
+          const [r,g,b]=palette(row[bin]);
+          const px=base+x*4; data[px]=r; data[px+1]=g; data[px+2]=b; data[px+3]=255;
+        }
+      }
+      wfCtx.putImageData(imgData,0,0); lastWfImg=imgData;
+      _drawWaterfallOverlays();
+    }
+
+    function _redrawWaterfallCursor() {
+      if(lastWfImg) wfCtx.putImageData(lastWfImg,0,0);
+      _drawWaterfallOverlays();
+    }
+    function _drawWaterfallOverlays() {
+      const W=wfC.width,H=wfC.height;
+      if(tuningOverlay) _drawOverlay(wfCtx,W,H);
+      if(cursorX!==null){
+        wfCtx.strokeStyle="rgba(255,255,255,0.35)"; wfCtx.lineWidth=1;
+        wfCtx.beginPath(); wfCtx.moveTo(Math.round(cursorX),0); wfCtx.lineTo(Math.round(cursorX),H); wfCtx.stroke();
+      }
+    }
+    function _drawOverlay(ctx,W,H) {
+      const {freq_mhz,bandwidth_hz}=tuningOverlay;
+      const bwMhz=bandwidth_hz/1e6;
+      const cx=freqToX(freq_mhz,W);
+      const loX=freqToX(freq_mhz-bwMhz/2,W);
+      const hiX=freqToX(freq_mhz+bwMhz/2,W);
+      ctx.fillStyle="rgba(248,81,73,0.12)"; ctx.fillRect(loX,0,hiX-loX,H);
+      ctx.strokeStyle="rgba(248,81,73,0.9)"; ctx.lineWidth=1.5; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,H); ctx.stroke();
+    }
+
+    overlay.addEventListener("mousemove",e=>{
+      const rect=overlay.getBoundingClientRect(); const x=e.clientX-rect.left;
+      cursorX=x;
+      const freqMhz=xToFreq(x,rect.width);
+      const bin=latestPowers.length?freqToBin(freqMhz,latestPowers.length):-1;
+      const power=bin>=0?latestPowers[bin]:null;
+      document.getElementById("cursor-freq").textContent=freqMhz.toFixed(4)+" MHz";
+      document.getElementById("cursor-power").textContent=power!==null?power.toFixed(1)+" dBm":"";
+      if(dragStartX!==null){
+        const deltaPx=x-dragStartX;
+        const deltaFrac=-deltaPx/rect.width/view.zoom;
+        view.panFrac=Math.max(0,Math.min(1,dragStartPanFrac+deltaFrac));
+        _redrawAll();
+      } else {
+        _drawRuler(); _drawSpectrum(); _redrawWaterfallCursor();
+      }
+    });
+    overlay.addEventListener("mouseleave",()=>{
+      cursorX=null; dragStartX=null;
+      document.getElementById("cursor-freq").textContent="Hover over spectrum to read frequency";
+      document.getElementById("cursor-power").textContent="";
+      _drawRuler(); _drawSpectrum(); _redrawWaterfallCursor();
+    });
+    overlay.addEventListener("mousedown",e=>{
+      if(e.button!==0) return;
+      const rect=overlay.getBoundingClientRect();
+      dragStartX=e.clientX-rect.left; dragStartPanFrac=view.panFrac;
+    });
+    overlay.addEventListener("mouseup",e=>{
+      const rect=overlay.getBoundingClientRect();
+      const upX=e.clientX-rect.left;
+      const moved=Math.abs(upX-(dragStartX??upX));
+      dragStartX=null;
+      if(moved<4){
+        const freqMhz=xToFreq(upX,rect.width);
+        const freq_hz=Math.round(freqMhz*1e6);
+        const band=(window.RagSpy?.bands??[]).find(b=>freqMhz>=b.start_mhz&&freqMhz<=b.stop_mhz);
+        const mode=band?.rtl_fm_mode??window.RagSpy?.activeMode??"nfm";
+        const label=freqMhz.toFixed(4)+" MHz";
+        const bwMap={am:10000,nfm:12500,usb:3000,lsb:3000,wbfm:180000};
+        const bw=bwMap[mode]??12500;
+        if(typeof window.AudioPlayer!=="undefined") window.AudioPlayer.tune(freq_hz,mode,label,bw);
+      }
+    });
+
+    function pushRow(row) {
+      if(!row?.power_values?.length) return;
+      bandStart=row.freq_start_mhz; bandEnd=row.freq_end_mhz;
+      const powers=row.power_values;
+      latestPowers=powers;
+      const sorted=[...powers].sort((a,b)=>a-b);
+      const rowFloor=sorted[Math.floor(sorted.length*0.10)];
+      noiseFloor=noiseFloor*0.93+rowFloor*0.07;
+      const rowMin=sorted[0],rowMax=sorted[sorted.length-1];
+      displayMin=displayMin*0.9+(rowMin-5)*0.1;
+      displayMax=displayMax*0.9+(rowMax+5)*0.1;
+      if(peakHold.length!==powers.length) peakHold=new Array(powers.length).fill(-Infinity);
+      for(let i=0;i<powers.length;i++) peakHold[i]=Math.max(powers[i],peakHold[i]-PEAK_DECAY);
+      rowHistory[rowHead]=Float32Array.from(powers);
+      rowHead=(rowHead+1)%MAX_ROWS;
+      _redrawAll();
+    }
+    function _redrawAll(){_drawRuler();_drawSpectrum();_drawWaterfall();}
+    function clear(){rowHistory.length=0;rowHead=0;latestPowers=[];peakHold=[];lastWfImg=null;_redrawAll();}
+    function setZoom(l){view.zoom=l;lastWfImg=null;_redrawAll();}
+    function setPalette(n){currentPalette=n;lastWfImg=null;_redrawAll();}
+    function setBandRange(s,e){bandStart=s;bandEnd=e;view.panFrac=0.5;lastWfImg=null;peakHold=[];}
+    function setTuningOverlay(d){tuningOverlay=d;_drawSpectrum();_redrawWaterfallCursor();}
+    function clearTuningOverlay(){tuningOverlay=null;_drawSpectrum();_redrawWaterfallCursor();}
+    window.addEventListener("load",_resize);
+    return{pushRow,clear,setZoom,setPalette,setBandRange,setTuningOverlay,clearTuningOverlay};
+  })();
+
+  // ═══════════════════════════════════════════════════════════════
+  // SignalsUI — unchanged from production
+  // ═══════════════════════════════════════════════════════════════
+  window.SignalsUI = (() => {
+    const tbody    = document.getElementById("signals-body");
+    const emptyRow = document.getElementById("signals-empty");
+
+    function update(signals) {
+      if(!signals?.length){
+        tbody.innerHTML=""; tbody.appendChild(emptyRow);
+        emptyRow.cells[0].textContent="No signals detected"; return;
+      }
+      const activeFreqMhz=window.RagSpy.currentSession?.freq_mhz??null;
+      tbody.innerHTML="";
+      signals.forEach(sig=>{
+        const isActive=activeFreqMhz!==null&&Math.abs(sig.freq_mhz-activeFreqMhz)<0.001;
+        const snrClass=sig.snr_db>=25?"snr-high":sig.snr_db>=12?"snr-medium":"snr-low";
+        const tr=document.createElement("tr");
+        tr.innerHTML=`
+          <td>${sig.freq_mhz.toFixed(4)}&nbsp;MHz</td>
+          <td>${_typeLabel(sig.signal_type)}</td>
+          <td>${sig.display_name}</td>
+          <td class="${snrClass}">${sig.snr_db.toFixed(1)}</td>
+          <td><span class="mode-badge">${sig.rtl_fm_mode.toUpperCase()}</span></td>
+          <td><button class="listen-btn${isActive?" active":""}"
+                      data-freq="${Math.round(sig.freq_mhz*1e6)}"
+                      data-mode="${sig.rtl_fm_mode}"
+                      data-label="${sig.display_name}"
+                      data-bw="${sig.bandwidth_est_hz??12500}">
+            ${isActive?"Stop":"Listen"}
+          </button></td>`;
+        tbody.appendChild(tr);
+      });
+      tbody.querySelectorAll(".listen-btn").forEach(btn=>{
+        btn.addEventListener("click",()=>{
+          const freq_hz=parseInt(btn.dataset.freq,10);
+          const mode=btn.dataset.mode, label=btn.dataset.label;
+          const bw=parseInt(btn.dataset.bw,10);
+          if(btn.classList.contains("active")){
+            window.AudioPlayer?.stop();
+          } else {
+            window.RagSpy.setActiveMode(mode);
+            window.AudioPlayer?.tune(freq_hz,mode,label,bw);
+          }
+        });
+      });
+    }
+
+    function _typeLabel(type){
+      return{cb_radio:"CB",amateur_10m:"Ham 10m",amateur_6m:"Ham 6m",
+             land_mobile:"Land Mobile",vhf_utility:"VHF Utility"}[type]??type;
+    }
+    return{update};
+  })();
+
+  // ═══════════════════════════════════════════════════════════════
+  // AudioPlayer — mocked (no real audio; animated S-meter)
+  // ═══════════════════════════════════════════════════════════════
+  window.AudioPlayer = (() => {
+    const nowListeningBar = document.getElementById("now-listening");
+    const nlFreq          = document.getElementById("nl-freq");
+    const nlMode          = document.getElementById("nl-mode-badge");
+    const volSlider       = document.getElementById("volume-slider");
+    const squelchSlider   = document.getElementById("squelch-slider");
+    const stopBtn         = document.getElementById("stop-btn");
+    const smeterSegs      = Array.from(document.querySelectorAll("#smeter .seg"));
+
+    const S_THRESHOLDS = [0.005,0.015,0.04,0.08,0.15,0.25,0.40];
+    function _updateSmeter(rms){
+      smeterSegs.forEach((seg,i)=>seg.classList.toggle("lit",rms>=S_THRESHOLDS[i]));
+    }
+
+    let sessionId = null, smeterTimer = null, tunedFreqMhz = null;
+    stopBtn.addEventListener("click",()=>stop());
+
+    async function tune(freq_hz, mode, label, bandwidth_hz) {
+      if(sessionId) await stop();
+
+      sessionId = "demo-" + Date.now();
+      tunedFreqMhz = freq_hz / 1e6;
+
+      window.RagSpy.currentSession = {
+        id: sessionId, freq_mhz: tunedFreqMhz,
+        mode, bandwidth_hz: bandwidth_hz??12500,
+      };
+
+      nlFreq.textContent = label || tunedFreqMhz.toFixed(4)+" MHz";
+      nlMode.textContent = mode.toUpperCase();
+      nowListeningBar.style.display = "flex";
+
+      if(typeof window.WaterfallUI!=="undefined"){
+        window.WaterfallUI.setTuningOverlay({freq_mhz:tunedFreqMhz,bandwidth_hz:bandwidth_hz??12500});
+      }
+
+      const badge=document.getElementById("device-status");
+      badge.className="status-badge listening"; badge.textContent="LISTENING";
+
+      // Find matching signal SNR for realistic S-meter simulation
+      let signalSnr = 0;
+      const activeBand=window.RagSpy?.activeBand;
+      (DEMO_SIGNALS[activeBand]||[]).forEach(sig=>{
+        if(Math.abs(sig.freq_mhz-tunedFreqMhz)<0.1) signalSnr=sig.snr_db;
+      });
+
+      let phase=0;
+      smeterTimer=setInterval(()=>{
+        phase+=0.12;
+        const squelch=parseFloat(squelchSlider.value);
+        const vol=parseFloat(volSlider.value);
+        const baseRms=signalSnr>6
+          ? 0.03+(signalSnr/40)*0.35*(0.65+0.35*Math.sin(phase))*(0.85+Math.random()*0.3)
+          : 0.003+Math.random()*0.008;
+        const effective=baseRms*vol;
+        _updateSmeter(effective<squelch?0:effective);
+      },80);
+    }
+
+    async function stop() {
+      if(!sessionId) return;
+      sessionId=null; tunedFreqMhz=null;
+      window.RagSpy.currentSession=null;
+      if(smeterTimer){clearInterval(smeterTimer);smeterTimer=null;}
+      nowListeningBar.style.display="none";
+      _updateSmeter(0);
+      if(typeof window.WaterfallUI!=="undefined") window.WaterfallUI.clearTuningOverlay();
+      const badge=document.getElementById("device-status");
+      badge.className="status-badge scanning"; badge.textContent="SCANNING";
+    }
+
+    return{tune,stop};
+  })();
+
+  // ═══════════════════════════════════════════════════════════════
+  // RagSpy app — bands hardcoded, scan loop via setInterval
+  // ═══════════════════════════════════════════════════════════════
+  window.RagSpy = {
+    currentSession: null,
+    activeBand:     "cb_radio",
+    activeMode:     "am",
+    bands:          [],
+
+    init() {
+      this.bands = DEMO_BANDS;
+      this._populateBandSelect();
+      this._initSidebar();
+      this._startScanLoop();
+    },
+
+    _populateBandSelect() {
+      const sel=document.getElementById("band-select");
+      sel.innerHTML="";
+      this.bands.forEach(b=>{
+        const opt=document.createElement("option");
+        opt.value=b.name; opt.textContent=b.display;
+        sel.appendChild(opt);
+      });
+      sel.value=this.activeBand;
+      const initial=this.bands.find(b=>b.name===this.activeBand);
+      if(initial&&window.WaterfallUI) window.WaterfallUI.setBandRange(initial.start_mhz,initial.stop_mhz);
+
+      sel.addEventListener("change",()=>{
+        this.activeBand=sel.value;
+        const band=this.bands.find(b=>b.name===sel.value);
+        if(band&&window.WaterfallUI){
+          window.WaterfallUI.setBandRange(band.start_mhz,band.stop_mhz);
+          window.WaterfallUI.clear();
+        }
+        document.querySelectorAll(".zoom-btn").forEach(b=>b.classList.remove("active"));
+        document.querySelector('.zoom-btn[data-zoom="1"]').classList.add("active");
+        if(window.WaterfallUI) window.WaterfallUI.setZoom(1);
+        // Immediately push a fresh row so the waterfall doesn't sit empty
+        this._pushFakeRow(0);
+      });
+    },
+
+    _startScanLoop() {
+      let t = 0;
+      // Push first rows immediately for instant visual feedback
+      for(let i=0;i<8;i++) this._pushFakeRow(-i*0.8);
+      window.SignalsUI?.update(_generateSignals(this.activeBand,0));
+
+      setInterval(()=>{
+        t += 1;
+        this._pushFakeRow(t);
+        if(t%3===0) window.SignalsUI?.update(_generateSignals(this.activeBand,t));
+      }, 900);
+    },
+
+    _pushFakeRow(t) {
+      const band=this.bands.find(b=>b.name===this.activeBand);
+      if(!band) return;
+      const powers=_generateRow(band.name,band.start_mhz,band.stop_mhz,512,t);
+      window.WaterfallUI?.pushRow({
+        freq_start_mhz: band.start_mhz,
+        freq_end_mhz:   band.stop_mhz,
+        power_values:   Array.from(powers),
+      });
+    },
+
+    _initSidebar() {
+      document.querySelectorAll(".mode-btn").forEach(btn=>{
+        btn.addEventListener("click",()=>{
+          document.querySelectorAll(".mode-btn").forEach(b=>b.classList.remove("active"));
+          btn.classList.add("active"); this.activeMode=btn.dataset.mode;
+        });
+      });
+      document.querySelectorAll(".zoom-btn").forEach(btn=>{
+        btn.addEventListener("click",()=>{
+          document.querySelectorAll(".zoom-btn").forEach(b=>b.classList.remove("active"));
+          btn.classList.add("active");
+          if(window.WaterfallUI) window.WaterfallUI.setZoom(parseInt(btn.dataset.zoom,10));
+        });
+      });
+      document.querySelectorAll(".palette-btn").forEach(btn=>{
+        btn.addEventListener("click",()=>{
+          document.querySelectorAll(".palette-btn").forEach(b=>b.classList.remove("active"));
+          btn.classList.add("active");
+          if(window.WaterfallUI) window.WaterfallUI.setPalette(btn.dataset.palette);
+        });
+      });
+
+      const freqInput=document.getElementById("freq-input");
+      const goBtn=document.getElementById("freq-go-btn");
+      const bwDefaults={am:10000,nfm:12500,fm:12500,usb:3000,lsb:3000,wbfm:180000};
+      const doTune=()=>{
+        const mhz=parseFloat(freqInput.value);
+        if(isNaN(mhz)||mhz<1||mhz>3000) return;
+        const hz=Math.round(mhz*1e6);
+        const mode=this.activeMode;
+        const bw=bwDefaults[mode]??12500;
+        window.AudioPlayer?.tune(hz,mode,mhz.toFixed(4)+" MHz",bw);
+      };
+      goBtn.addEventListener("click",doTune);
+      freqInput.addEventListener("keydown",e=>{if(e.key==="Enter")doTune();});
+    },
+
+    setActiveMode(mode) {
+      this.activeMode=mode;
+      document.querySelectorAll(".mode-btn").forEach(b=>{
+        b.classList.toggle("active",b.dataset.mode===mode);
+      });
+    },
+  };
+
+  document.addEventListener("DOMContentLoaded",()=>window.RagSpy.init());
+  </script>
+</body>
+</html>
